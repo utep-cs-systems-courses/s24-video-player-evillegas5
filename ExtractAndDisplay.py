@@ -6,6 +6,30 @@ import numpy as np
 import base64
 import queue
 
+class blockQueue:
+    def __init__(self, size):
+        self.size = size
+        self.q = queue.Queue(self.size)
+        self.full = threading.Semaphore(0)
+        self.empt = threading.Semaphore(self.size)
+        self.ql = threading.Lock()
+
+    def put(self, item):
+        self.empt.acquire()
+        self.ql.acquire()
+        self.q.put(item)
+        self.ql.release()
+        self.full.release()
+
+    def get(self):
+        self.full.acquire()
+        self.ql.acquire()
+        output = self.q.get()
+        self.ql.release()
+        self.empt.release()
+
+        return output
+
 def extractFrames(fileName, outputBuffer, maxFramesToLoad=9999):
     # Initialize frame count 
     count = 0
@@ -33,10 +57,24 @@ def extractFrames(fileName, outputBuffer, maxFramesToLoad=9999):
 
     print('Frame extraction complete')
 
+def convertGreyscale(inputBuffer, outputBuffer):
+    count = 0
+    
+    while not inputBuffer.empty():
+        curframe = inputBuffer.get()
+        
+        # conver image to greyscale
+        greyFrame = cv2.cvtColor(curframe, cv2.COLOR_BGR2GRAY)
+
+        # output file
+        outputBuffer.put(greyFrame)
+
+        count += 1
+        
 
 def displayFrames(inputBuffer):
     # initialize frame count
-    count = 0
+    count = 0 
 
     # go through each frame in the buffer until the buffer is empty
     while not inputBuffer.empty():
@@ -60,12 +98,20 @@ def displayFrames(inputBuffer):
 # filename of clip to load
 filename = 'clip.mp4'
 
-# shared queue  
-extractionQueue = queue.Queue()
+# thread for extraction
+extractQueue = blockQueue(10)
+extract_thread = threading.Thread(target=lambda: extractFrames(filename, extractQueue, 72))
 
-# extract the frames
-extractFrames(filename,extractionQueue, 72)
+# thread for greyscale
+greyScaleQueue = blockQueue(10)
+greyScale_thread = threading.Thread(target=lambda: convertGreyscale(extractQueue, greyScaleQueue))
 
-# display the frames
-displayFrames(extractionQueue)
+# thread for display
+display_thread = threading.Thread(target=lambda: displayFrames(greyScaleQueue))
+threading.Thread()
+
+# initialize threads
+extract_thread.start()
+greyScale_thread.start()
+display_thread.start()
 
